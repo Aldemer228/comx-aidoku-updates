@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "comx-feed.zip"
+      - "comx-feed-v*.zip"
       - ".github/workflows/publish.yml"
   workflow_dispatch:
 
@@ -23,10 +24,32 @@ jobs:
           from pathlib import Path
           from zipfile import ZipFile
 
-          bundle = Path("comx-feed.zip")
-          if not bundle.exists():
-              print("Upload comx-feed.zip to publish the source list.")
-              raise SystemExit(0)
+          import re
+          # Versioned archives avoid needing to overwrite an existing ZIP
+          # through GitHub's browser upload screen.
+          candidates = []
+          for file in Path(".").glob("comx-feed-v*.zip"):
+              matched = re.fullmatch(r"comx-feed-v([0-9]+)\.zip", file.name)
+              if matched:
+                  candidates.append((int(matched.group(1)), file))
+          if candidates:
+              requested_version, bundle = max(candidates)
+          else:
+              bundle = Path("comx-feed.zip")
+              if not bundle.exists():
+                  print("Upload comx-feed-vNN.zip to publish the source list.")
+                  raise SystemExit(0)
+              requested_version = None
+
+          current = Path("index.min.json")
+          if current.exists():
+              previous = json.loads(current.read_text(encoding="utf-8"))
+              previous_version = max(
+                  (v.get("version", 0) for v in previous.get("sources", []) if v.get("id") == "ru.comx"),
+                  default=0,
+              )
+          else:
+              previous_version = 0
 
           with ZipFile(bundle) as archive:
               names = set(archive.namelist())
@@ -38,6 +61,10 @@ jobs:
               entry = index["sources"][0]
               if entry["id"] != "ru.comx":
                   raise ValueError("Unexpected source id")
+              if requested_version is not None and entry["version"] != requested_version:
+                  raise ValueError("Feed archive filename and source version mismatch")
+              if entry["version"] < previous_version:
+                  raise ValueError("Refusing to publish older version over existing public feed")
               expected = {
                   "index.min.json", "index.json", entry["iconURL"], entry["downloadURL"]
               }
