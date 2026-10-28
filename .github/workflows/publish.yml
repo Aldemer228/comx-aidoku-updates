@@ -1,0 +1,72 @@
+name: Publish Com-X feed
+
+on:
+  push:
+    paths:
+      - "comx-feed.zip"
+      - ".github/workflows/publish.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack verified Aidoku source list
+        run: |
+          python3 - <<'PY'
+          import io
+          import json
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          bundle = Path("comx-feed.zip")
+          if not bundle.exists():
+              print("Upload comx-feed.zip to publish the source list.")
+              raise SystemExit(0)
+
+          with ZipFile(bundle) as archive:
+              names = set(archive.namelist())
+              if "index.min.json" not in names:
+                  raise ValueError("Missing source index")
+              index = json.loads(archive.read("index.min.json"))
+              if index.get("name") != "Com-X Updates" or len(index.get("sources", [])) != 1:
+                  raise ValueError("Unexpected source-list format")
+              entry = index["sources"][0]
+              if entry["id"] != "ru.comx":
+                  raise ValueError("Unexpected source id")
+              expected = {
+                  "index.min.json", "index.json", entry["iconURL"], entry["downloadURL"]
+              }
+              if names != expected:
+                  raise ValueError(f"Unexpected bundle files: {names ^ expected}")
+              with ZipFile(io.BytesIO(archive.read(entry["downloadURL"]))) as pkg:
+                  info = json.loads(pkg.read("Payload/source.json"))["info"]
+                  if info["id"] != entry["id"] or info["version"] != entry["version"]:
+                      raise ValueError("Version mismatch between list and package")
+
+              for name in sorted(expected):
+                  target = Path(name)
+                  if target.is_absolute() or ".." in target.parts:
+                      raise ValueError("Unsafe ZIP entry path")
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(archive.read(name))
+          print(f"Published Com-X v{entry['version']}")
+          PY
+      - name: Commit public index and binaries
+        run: |
+          if [ ! -f index.min.json ]; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.min.json index.json icons/ sources/
+          if git diff --cached --quiet; then
+            echo "No changes to publish"
+            exit 0
+          fi
+          git commit -m "Publish Com-X source-list update"
+          git push
