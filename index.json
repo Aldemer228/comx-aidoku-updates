@@ -3,10 +3,10 @@
   "sources": [
     {
       "id": "ru.comx",
-      "name": "Com-X (Editorial v11)",
-      "version": 11,
-      "iconURL": "icons/ru.comx-v11.png",
-      "downloadURL": "sources/ru.comx-v11.aix",
+      "name": "Com-X (Editorial v18)",
+      "version": 18,
+      "iconURL": "icons/ru.comx-v18.png",
+      "downloadURL": "sources/ru.comx-v18.aix",
       "languages": [
         "ru"
       ],
